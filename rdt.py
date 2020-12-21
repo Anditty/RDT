@@ -34,7 +34,7 @@ class RDTSocket(UnreliableSocket):
         self.window_size = 10
         self.cwnd = 10
         self.rwnd = 1000
-        self.pkt_length = 1500
+        self.pkt_length = 1200
         self.ssthresh = sys.maxsize  # 发生丢包等错误时回退的值，默认为int最大值
         self.duplicate = 0  # duplicate packet number
         # head
@@ -202,7 +202,7 @@ class RDTSocket(UnreliableSocket):
 
             try:
                 if self.start_state == 1:
-                    self.settimeout(5)
+                    self.settimeout(2.5)
                     data_stage_2 = self.recvfrom_check(2048)
 
                     if data_stage_2 is None:
@@ -345,9 +345,8 @@ class RDTSocket(UnreliableSocket):
         pkt_l = 0
         pkt_point = 0
         base_point = self.SEQ
-        end_point = -1
-        last_SEQ = 0  # 记录最后发送的seq
-        last_SEQACK = 0  # 记录最新收到的ack
+        last_SEQ = self.SEQ  # 记录最后发送的seq
+        last_SEQACK = self.SEQ  # 记录最新收到的ack
         # print("len"+str(len(bytes)))
         while pkt_l < len(bytes):
             pkt_list.append(bytes[pkt_l:pkt_l + min(self.pkt_length, len(bytes) - pkt_l)])
@@ -355,21 +354,20 @@ class RDTSocket(UnreliableSocket):
 
         while last_SEQACK < len(pkt_list) + base_point:
             self.window_size = min(self.cwnd, self.rwnd)
-            print(f"cwnd: {self.cwnd}")
-            if last_SEQ + 1 - last_SEQACK < self.window_size and pkt_point < len(pkt_list):
+            if last_SEQ - last_SEQACK + 1 < self.window_size and pkt_point < len(pkt_list):
                 self.SEQ = base_point + pkt_point
+                last_SEQ = self.SEQ
 
                 pkt_data = self.generatePkt(pkt_list[pkt_point])
 
                 pkt_point += 1
-                last_SEQ = self.SEQ
                 if self.father is not None:
                     self.father.sendto(pkt_data, self._send_to)
                 else:
                     self.sendto(pkt_data, self._send_to)
             else:
                 try:
-                    self.settimeout(5)
+                    self.settimeout(2.5)
                     if self.father is not None:
                         ack_data = self.father.recvfrom_check(2048)
                     else:
@@ -384,15 +382,16 @@ class RDTSocket(UnreliableSocket):
                             self.cwnd /= 2
                             self.ssthresh /= 2
 
-                    elif last_SEQ + 1 >= RDTSocket.get_SEQACK(ack_data) > last_SEQ + 1 - self.window_size:
+                    else:
                         self.duplicate = 0
                         self.acknumber = RDTSocket.get_SEQACK(ack_data)
-                        last_SEQACK = self.acknumber
+                        last_SEQACK = max(last_SEQACK, self.acknumber)
                         self.congest_control()
 
                 except Exception:
-                    pkt_point = max(last_SEQ - base_point - self.window_size + 1, 0)
-                    last_SEQ = base_point + pkt_point
+                    last_SEQ = max(last_SEQACK - 1, base_point)
+                    pkt_point = last_SEQ - base_point
+
                     self.ssthresh = self.cwnd / 2
                     self.cwnd = 1  # 快回退
 
@@ -430,7 +429,7 @@ class RDTSocket(UnreliableSocket):
         while close_state < 4:
             print(f"close state {close_state}")
             try:
-                self.settimeout(5)
+                self.settimeout(2.5)
                 if close_state == 0:
                     self.clear_flags()
                     self.FIN = 1
