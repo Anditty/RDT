@@ -137,6 +137,10 @@ class RDTSocket(UnreliableSocket):
                 self.clear_flags()
                 self.SYN = 1
                 self.ACK = 1
+
+                self.SEQ = 0
+                self.SEQACK = 1
+
                 data_stage_2 = self.generatePkt(None)
                 self.sendto(data_stage_2, addr)
                 self.start_state += 1
@@ -152,13 +156,23 @@ class RDTSocket(UnreliableSocket):
                     self.start_state -= 1
                     continue
 
-                if RDTSocket.get_ACK(data_stage_3) == 1:  # 判断ACK是否为1
+                if RDTSocket.get_ACK(data_stage_3) == 1 or RDTSocket.get_SEQACK(data_stage_3) > 0:  # 判断ACK是否为1
                     self.start_state += 1
+
+                    self.SEQ = 1
+                    self.SEQACK = 2
+
                     conn.set_send_to(addr)
                     conn.set_recv_from(addr)
+
                     self.set_send_to(addr)
                     self.set_recv_from(addr)
+
                     conn.father = self
+                    conn.SEQ = self.SEQ
+                    conn.SEQACK = self.SEQACK
+
+                    self.clear_flags()
                     continue
 
         #############################################################################
@@ -193,6 +207,10 @@ class RDTSocket(UnreliableSocket):
             if self.start_state == 0:  # 发送SYN，请求建立连接
                 self.clear_flags()
                 self.SYN = 1
+
+                self.SEQ = 0
+                self.SEQACK = 0
+
                 data_stage_1 = self.generatePkt(None)
                 self.sendto(data_stage_1, address)
                 self.start_state += 1
@@ -220,11 +238,19 @@ class RDTSocket(UnreliableSocket):
             if self.start_state == 2:  # 发送ACK， 开始建立连接
                 self.clear_flags()
                 self.ACK = 1
+
+                self.SEQ = 1
+                self.SEQACK = 1
+
                 data_stage_3 = self.generatePkt(None)
                 self.sendto(data_stage_3, address)
                 self.start_state += 1
+
                 self.set_send_to(address)
                 self.set_recv_from(address)
+
+                self.SEQ = 2
+
                 continue
 
         #############################################################################
@@ -320,6 +346,7 @@ class RDTSocket(UnreliableSocket):
                         continue
 
                     if RDTSocket.get_ACK(data_stage_3) == 1:
+                        print(data_stage_3)
                         self._send_to = None
                         self._recv_from = None
                         close_state += 1
@@ -501,6 +528,7 @@ class RDTSocket(UnreliableSocket):
             pkt_data = self.combine_head()
         else:
             pkt_data = self.combine_head() + data
+        self.clear_flags()
         return pkt_data
 
     def recvfrom_check(self, buffer_size):  # 接收消息并进行校验，如果校验成功，返回原数据，如果失败则返回None。

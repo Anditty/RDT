@@ -51,7 +51,7 @@ class Server(ThreadingUDPServer):
                 return 
             for i in range(len(data)-1):
                 if random.random() < corrupt_rate:
-                    data[i] = data[:i] + (data[i]+1).to_bytes(1,'big) + data[i+1:]
+                    data[i] = data[:i] + (data[i]+1).to_bytes(1,'big') + data[i+1:]
             """
 
         """
