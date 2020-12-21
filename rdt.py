@@ -394,6 +394,8 @@ class RDTSocket(UnreliableSocket):
 
                 except Exception:
                     pkt_point = max(end_point - self.window_size, 0)
+                    self.ssthresh = self.window_size / 2
+                    self.window_size = 1  # 快回退
 
         self.clear_flags()
         self.STOP = 1
@@ -416,12 +418,9 @@ class RDTSocket(UnreliableSocket):
         else:
             self.window_size+=(1/self.window_size) # linear add
         # 3 times duplicate or timeout
-        if self.gettimeout():
-            self.ssthresh = self.window_size/2
-            self.window_size=1 # 快回退
-        if self.duplicate>=3:
-            self.ssthresh=self.window_size/2
-            self.window_size=self.window_size/2
+
+
+
 
     def close(self):
         """
