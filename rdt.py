@@ -309,6 +309,7 @@ class RDTSocket(UnreliableSocket):
                 data = tmp_data[0]
 
         if RDTSocket.get_FIN(data) == 1:
+
             close_state = 0
             close_count = 0
             while close_state < 3:
@@ -376,11 +377,14 @@ class RDTSocket(UnreliableSocket):
                             self._send_to = None
                             self._recv_from = None
                             close_state += 1
-                            if self.father is not None:
-                                self.father.settimeout(None)
-                            else:
-                                self.settimeout(None)
                         continue
+
+            if self.father is not None:
+                self.father.settimeout(None)
+            else:
+                self.settimeout(None)
+
+
         #############################################################################
         #                             END OF YOUR CODE                              #
         #############################################################################
