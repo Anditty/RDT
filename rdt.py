@@ -2,6 +2,7 @@ from USocket import UnreliableSocket
 import threading
 import time
 import random
+import sys
 
 
 class RDTSocket(UnreliableSocket):
@@ -19,20 +20,23 @@ class RDTSocket(UnreliableSocket):
 
     """
 
+    # packet head defined
     def __init__(self, rate=None, debug=True):
         super().__init__(rate=rate)
         self._rate = rate
         self._send_to = None
         self._recv_from = None
         self.debug = debug
-        #############################################################################
-        # TODO: ADD YOUR NECESSARY ATTRIBUTES HERE
-        #############################################################################
+
+        self.acknumber = -1
         self.start_state = 0  # 0,1,2 分别表示握手的三个阶段
         self.father: RDTSocket = None
-        self.window_size = 4
-        self.pkt_length = 2
-
+        self.window_size = 10
+        self.cwnd = 10
+        self.rwnd = 1000
+        self.pkt_length = 1500
+        self.ssthresh = sys.maxsize  # 发生丢包等错误时回退的值，默认为int最大值
+        self.duplicate = 0  # duplicate packet number
         # head
         # flags
         self.SYN = 0  # 1 0
@@ -46,10 +50,7 @@ class RDTSocket(UnreliableSocket):
         self.PAYLOAD = 0  # 4 17
 
         self.STOP = 0  # 21
-        #############################################################################
-        #                             END OF YOUR CODE                              #
-        #############################################################################
-    #报文头
+
     def combine_head(self):
         return self.SYN.to_bytes(1, byteorder="big") + \
                self.FIN.to_bytes(1, byteorder="big") + \
@@ -344,31 +345,24 @@ class RDTSocket(UnreliableSocket):
         pkt_l = 0
         pkt_point = 0
         base_point = self.SEQ
-        end_point = 0
+        end_point = -1
+        last_SEQ = 0  # 记录最后发送的seq
+        last_SEQACK = 0  # 记录最新收到的ack
         # print("len"+str(len(bytes)))
         while pkt_l < len(bytes):
             pkt_list.append(bytes[pkt_l:pkt_l + min(self.pkt_length, len(bytes) - pkt_l)])
             pkt_l = pkt_l + self.pkt_length
 
-        for i in range(self.window_size):
-            self.SEQ = base_point + pkt_point
-            pkt_data = self.generatePkt(pkt_list[pkt_point])
-            if self.father is not None:
-                self.father.sendto(pkt_data, self._send_to)
-            else:
-                self.sendto(pkt_data, self._send_to)
-            pkt_point += 1
-            end_point += 1
-            if pkt_point >= len(pkt_list):
-                break
-
-        while end_point - self.window_size < len(pkt_list):
-            if pkt_point < end_point and pkt_point < len(pkt_list):
+        while last_SEQACK < len(pkt_list) + base_point:
+            self.window_size = min(self.cwnd, self.rwnd)
+            print(f"cwnd: {self.cwnd}")
+            if last_SEQ + 1 - last_SEQACK < self.window_size and pkt_point < len(pkt_list):
                 self.SEQ = base_point + pkt_point
 
                 pkt_data = self.generatePkt(pkt_list[pkt_point])
 
                 pkt_point += 1
+                last_SEQ = self.SEQ
                 if self.father is not None:
                     self.father.sendto(pkt_data, self._send_to)
                 else:
@@ -383,10 +377,24 @@ class RDTSocket(UnreliableSocket):
                     if ack_data is None:
                         continue
                     ack_data = ack_data[0]
-                    if end_point >= RDTSocket.get_SEQACK(ack_data) - base_point > end_point - self.window_size:
-                        end_point = RDTSocket.get_SEQACK(ack_data) - base_point + self.window_size
+                    if RDTSocket.get_SEQACK(ack_data) == self.acknumber:
+                        self.duplicate += 1
+                        if self.duplicate == 3:
+                            self.duplicate = 0
+                            self.cwnd /= 2
+                            self.ssthresh /= 2
+
+                    elif last_SEQ + 1 >= RDTSocket.get_SEQACK(ack_data) > last_SEQ + 1 - self.window_size:
+                        self.duplicate = 0
+                        self.acknumber = RDTSocket.get_SEQACK(ack_data)
+                        last_SEQACK = self.acknumber
+                        self.congest_control()
+
                 except Exception:
-                    pkt_point = max(end_point - self.window_size, 0)
+                    pkt_point = max(last_SEQ - base_point - self.window_size + 1, 0)
+                    last_SEQ = base_point + pkt_point
+                    self.ssthresh = self.cwnd / 2
+                    self.cwnd = 1  # 快回退
 
         self.clear_flags()
         self.STOP = 1
@@ -399,6 +407,16 @@ class RDTSocket(UnreliableSocket):
         #############################################################################
         #                             END OF YOUR CODE                              #
         #############################################################################
+
+    def congest_control(self):
+        """
+        这个方法应当在每次成功接受到ack时被调用，用于拥塞控制
+        """
+        if self.cwnd < self.ssthresh:
+            self.cwnd += 1  # slow start
+        else:
+            self.cwnd += (1 / self.cwnd)  # linear add
+        # 3 times duplicate or timeout
 
     def close(self):
         """

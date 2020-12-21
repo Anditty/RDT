@@ -8,7 +8,7 @@ while True:
     print("------------------------")
     while True:
         try:
-            print(int.from_bytes(conn.recv(2048), byteorder="big"))
+            print(conn.recv(2048).decode())
         except Exception:
             break
 
