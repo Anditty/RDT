@@ -65,13 +65,15 @@ class Server(ThreadingUDPServer):
         to = bytes_to_addr(data[:8])
         print(client_address, to)  # observe tht traffic
         print(data[8:])
-        if random.random() < 0.05:
+
+        if random.random() < 0.1:
             return
 
-        if random.random() < 0.05:
-            socket.sendto(addr_to_bytes(client_address) + (1).to_bytes(1, byteorder="big"), to)
-        else:
-            socket.sendto(addr_to_bytes(client_address) + data[8:], to)
+        for i in range(8, len(data) - 1):
+            if random.random() < 0.00001:
+                data = data[:i] + (data[i] + 1).to_bytes(1, 'big') + data[i + 1:]
+
+        socket.sendto(addr_to_bytes(client_address) + data[8:], to)
 
 
 server_address = ('127.0.0.1', 12345)
