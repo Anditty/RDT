@@ -5,6 +5,7 @@ from socketserver import ThreadingUDPServer
 
 lock = threading.Lock()
 
+
 def bytes_to_addr(bytes):
     return inet_ntoa(bytes[:4]), int.from_bytes(bytes[4:8], 'big')
 
@@ -64,7 +65,10 @@ class Server(ThreadingUDPServer):
         to = bytes_to_addr(data[:8])
         print(client_address, to)  # observe tht traffic
         print(data[8:])
-        if random.random() < 0.1:
+        if random.random() < 0.05:
+            return
+
+        if random.random() < 0.05:
             socket.sendto(addr_to_bytes(client_address) + (1).to_bytes(1, byteorder="big"), to)
         else:
             socket.sendto(addr_to_bytes(client_address) + data[8:], to)

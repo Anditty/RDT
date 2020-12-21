@@ -1,6 +1,6 @@
 from rdt import RDTSocket
 
-address = ("127.0.0.1", 8888)
+address = ("127.0.0.1", 9999)
 server = RDTSocket()
 server.bind(address)
 while True:
@@ -11,8 +11,3 @@ while True:
             print(conn.recv(2048).decode())
         except Exception as e:
             print(e)
-            break
-
-
-
-

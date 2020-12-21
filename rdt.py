@@ -34,7 +34,7 @@ class RDTSocket(UnreliableSocket):
         self.window_size = 10
         self.cwnd = 10
         self.rwnd = 1000
-        self.pkt_length = 1200
+        self.pkt_length = 1460
         self.ssthresh = sys.maxsize  # 发生丢包等错误时回退的值，默认为int最大值
         self.duplicate = 0  # duplicate packet number
         # head
@@ -202,7 +202,7 @@ class RDTSocket(UnreliableSocket):
 
             try:
                 if self.start_state == 1:
-                    self.settimeout(2.5)
+                    self.settimeout(1.5)
                     data_stage_2 = self.recvfrom_check(2048)
 
                     if data_stage_2 is None:
@@ -283,7 +283,7 @@ class RDTSocket(UnreliableSocket):
         if data[1] == 1:
             close_state = 0
             while close_state < 3:
-                print(f"close state {close_state}")
+                print(f"server close state {close_state}")
                 if close_state == 0:
                     self.clear_flags()
                     self.ACK = 1
@@ -326,6 +326,9 @@ class RDTSocket(UnreliableSocket):
                         self._recv_from = None
                         close_state += 1
                         continue
+
+                    self._send_to = None
+                    self._recv_from = None
         # print(len(fin_data))
         #############################################################################
         #                             END OF YOUR CODE                              #
@@ -367,7 +370,7 @@ class RDTSocket(UnreliableSocket):
                     self.sendto(pkt_data, self._send_to)
             else:
                 try:
-                    self.settimeout(2.5)
+                    self.settimeout(1.5)
                     if self.father is not None:
                         ack_data = self.father.recvfrom_check(2048)
                     else:
@@ -429,7 +432,7 @@ class RDTSocket(UnreliableSocket):
         while close_state < 4:
             print(f"close state {close_state}")
             try:
-                self.settimeout(2.5)
+                self.settimeout(1.5)
                 if close_state == 0:
                     self.clear_flags()
                     self.FIN = 1
