@@ -11,3 +11,4 @@ while True:
             print(conn.recv(2048).decode())
         except Exception as e:
             print(e)
+            break

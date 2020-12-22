@@ -159,7 +159,8 @@ class RDTSocket(UnreliableSocket):
                     self.start_state -= 1
                     continue
 
-                if RDTSocket.get_ACK(data_stage_3) == 1 or RDTSocket.get_SEQACK(data_stage_3) > 0:  # 判断ACK是否为1
+                if RDTSocket.get_ACK(data_stage_3) == 1 or RDTSocket.get_SEQACK(
+                        data_stage_3) > 0:  # 判断ACK是否为1，如果SYN+ACK丢失，在收到数据包时,通过pkt的SEQACK,进入ESTABLISHED。
                     self.start_state += 1
 
                     self.SEQ = 1
@@ -361,7 +362,7 @@ class RDTSocket(UnreliableSocket):
                             close_state += 1
                             continue
 
-                    except Exception as e:
+                    except Exception as e:  # 如果第四次挥手的包丢失，等待一段时间后自动断开连接
                         print("close count: {}".format(close_count))
                         print(e)
                         close_count += 1
@@ -375,7 +376,6 @@ class RDTSocket(UnreliableSocket):
                 self.father.settimeout(None)
             else:
                 self.settimeout(None)
-
 
         #############################################################################
         #                             END OF YOUR CODE                              #
@@ -415,7 +415,7 @@ class RDTSocket(UnreliableSocket):
 
                 self.accumulate_bytes += len(pkt_data)
                 if time.time() - ini_t > 1:
-                    print("speed: {} kB/s".format(round(self.accumulate_bytes / ((time.time() - ini_t)*1000)), 2))
+                    print("speed: {} kB/s".format(round(self.accumulate_bytes / ((time.time() - ini_t) * 1000)), 2))
 
                 if self.father is not None:
                     self.father.sendto(pkt_data, self._send_to)
