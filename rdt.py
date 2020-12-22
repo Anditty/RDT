@@ -313,10 +313,8 @@ class RDTSocket(UnreliableSocket):
             close_state = 0
             close_count = 0
             while close_state < 3:
+                print(f"server close state {close_state}")
                 if close_state == 0:  # 发送ACK，表示已经收到了FIN
-
-                    print(f"server close state {close_state}")
-
                     self.clear_flags()
                     self.ACK = 1
                     data_stage_1 = self.generatePkt(None)
@@ -328,9 +326,6 @@ class RDTSocket(UnreliableSocket):
                     continue
 
                 if close_state == 1:  # 发送FIN，表示自己要关闭连接
-
-                    print(f"server close state {close_state}")
-
                     self.clear_flags()
                     self.ACK = 1
                     self.FIN = 1
@@ -344,9 +339,6 @@ class RDTSocket(UnreliableSocket):
 
                 if close_state == 2:  # 等待对方发送ack
                     try:
-
-                        print(f"server close state {close_state}")
-
                         if self.father is not None:
                             self.father.settimeout(2)
                             data_stage_3 = self.father.recvfrom_check(bufsize)
@@ -423,7 +415,7 @@ class RDTSocket(UnreliableSocket):
 
                 self.accumulate_bytes += len(pkt_data)
                 if time.time() - ini_t > 1:
-                    print("speed: {}".format(self.accumulate_bytes / (time.time() - ini_t)))
+                    print("speed: {} kB/s".format(round(self.accumulate_bytes / ((time.time() - ini_t)*1000)), 2))
 
                 if self.father is not None:
                     self.father.sendto(pkt_data, self._send_to)

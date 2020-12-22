@@ -21,6 +21,10 @@ class Server(ThreadingUDPServer):
         self.buffer = 0
         self.delay = delay
 
+        self.loss_rate = 0.1
+        self.corrupt_rate = 0.00001
+        self.delay_rate = 0.05
+
     def verify_request(self, request, client_address):
         """
         request is a tuple (data, socket)
@@ -66,12 +70,15 @@ class Server(ThreadingUDPServer):
         print(client_address, to)  # observe tht traffic
         print(data[8:])
 
-        if random.random() < 0.1:
+        if random.random() < self.loss_rate:
             return
 
         for i in range(8, len(data) - 1):
-            if random.random() < 0.00001:
+            if random.random() < self.corrupt_rate:
                 data = data[:i] + (data[i] + 1).to_bytes(1, 'big') + data[i + 1:]
+
+        if random.random() < self.delay_rate:
+            time.sleep(2)
 
         socket.sendto(addr_to_bytes(client_address) + data[8:], to)
 

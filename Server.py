@@ -8,7 +8,7 @@ while True:
     print("------------------------")
     while True:
         try:
-            print(conn.recv(2048).decode())
+            print(conn.recv(2048))
         except Exception as e:
             print(e)
             break
