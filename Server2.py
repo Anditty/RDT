@@ -7,8 +7,9 @@ while True:
     conn, address = server.accept()
     print("------------------------")
     while True:
-        try:
-            print(conn.recv(2048).decode())
-        except Exception as e:
-            print(e)
+        recv_data = conn.recv(2048)
+        print(f"recv ok SEQ:{conn.SEQ} SEQACK:{conn.SEQACK}")
+        if recv_data is None:
             break
+        conn.send(recv_data)
+        print(f"send ok SEQ:{conn.SEQ} SEQACK:{conn.SEQACK}")
