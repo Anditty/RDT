@@ -7,7 +7,8 @@ client.connect(("127.0.0.1", 8888))
 with open("alice.txt", 'rb') as f:
     data = f.read()
 t0 = time.time()
-client.send(data)
+client.print_self()
+print("emmmmmm")
 print(time.time() - t0)
 client.close()
 

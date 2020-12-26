@@ -5,6 +5,32 @@ import random
 import sys
 
 
+class StoppableThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.__running = threading.Event()
+        self.__running.set()
+        self.job = None
+        self.job_args = None
+
+    def set_job(self, job, job_args=None):
+        self.job = job
+        self.job_args = job_args
+
+    def run(self):
+        if self.__running.isSet():
+            if self.job is None:
+                print("job is None")
+            else:
+                if self.job_args is None:
+                    self.job()
+                else:
+                    self.job(self.job_args)
+
+    def stop(self):
+        self.__running.clear()
+
+
 class RDTSocket(UnreliableSocket):
     """
     The functions with which you are to build your RDT.
@@ -53,6 +79,15 @@ class RDTSocket(UnreliableSocket):
 
         # 用来测速度的
         self.accumulate_bytes = 0
+
+        # 用来存储待发数据
+        self.send_buffer = []
+
+        # 开一个线程专门用来发送数据
+        self.send_thread = StoppableThread()
+        self.send_thread.set_job(self.test)
+        self.send_thread.setDaemon(True)
+        self.send_thread.start()
 
     def combine_head(self):
         return self.SYN.to_bytes(1, byteorder="big") + \
@@ -607,6 +642,21 @@ class RDTSocket(UnreliableSocket):
             return True
         else:
             return False
+
+    def test(self):
+        while True:
+            if len(self.send_buffer) > 0:
+                self.send(self.send_buffer[0])
+                self.send_buffer.remove(self.send_buffer[0])
+
+    def print_self(self):
+        while True:
+            data = input("send: ")
+            if data == "exit":
+                self.send_thread.stop()
+                break
+            self.send_buffer.append(data.encode())
+            time.sleep(0.1)
 
 
 """
