@@ -61,8 +61,8 @@ class RDTSocket(UnreliableSocket):
         self.father: RDTSocket = None  # 对于server端生成的conn，记录是谁创建了它
         self.window_size = 10
         self.cwnd = 1  # congestion control window size
-        self.rwnd = 30  # GBN window size
-        self.pkt_length = 1200  # 每一个packet的长度
+        self.rwnd = 20  # GBN window size
+        self.pkt_length = 1500  # 每一个packet的长度
         self.ssthresh = sys.maxsize  # 发生丢包等错误时回退的值，默认为int最大值
         self.duplicate = 0  # duplicate packet number
         # head
@@ -394,7 +394,7 @@ class RDTSocket(UnreliableSocket):
 
                     if close_state == 2:  # 等待对方发送ack
                         try:
-                            self.settimeout(3)
+                            self.settimeout(5)
                             data_stage_3 = self.recvfrom_rdt(2048)
                             self.settimeout(None)
 
