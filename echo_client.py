@@ -7,13 +7,12 @@ client.connect(('127.0.0.1', 9999))
 
 data_count = 0
 echo = b''
-count = 3
+count = 1
 
 with open('alice.txt', 'r') as f:
     data = f.read()
     encoded = data.encode()
     assert len(data) == len(encoded)
-
 start = time.perf_counter()
 for i in range(count):  # send 'alice.txt' for count times
     data_count += len(data)
@@ -31,7 +30,7 @@ while True:
 while len(client.ack_buffer) > 0:
     pass
 print(f"{client.last_SEQ}, {len(client.send_buffer)}")
-# client.close()
+client.close()
 
 '''
 make sure the following is reachable
