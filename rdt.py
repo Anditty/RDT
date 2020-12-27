@@ -1,7 +1,6 @@
 from USocket import UnreliableSocket
 import threading
 import time
-import random
 import sys
 
 
@@ -54,13 +53,13 @@ class RDTSocket(UnreliableSocket):
         self._recv_from = None
         self.debug = debug
 
-        self.acknumber = -1
+        self.ack_number = -1
         self.start_state = 0  # 0,1,2 分别表示握手的三个阶段
         self.father: RDTSocket = None  # 对于server端生成的conn，记录是谁创建了它
         self.window_size = 10
         self.cwnd = 10  # congestion control window size
         self.rwnd = 1000  # GBN window size
-        self.pkt_length = 1460  # 每一个packet的长度
+        self.pkt_length = 1400  # 每一个packet的长度
         self.ssthresh = sys.maxsize  # 发生丢包等错误时回退的值，默认为int最大值
         self.duplicate = 0  # duplicate packet number
         # head
@@ -82,12 +81,24 @@ class RDTSocket(UnreliableSocket):
 
         # 用来存储待发数据
         self.send_buffer = []
+        self.ack_buffer = []
 
         # 开一个线程专门用来发送数据
         self.send_thread = StoppableThread()
-        self.send_thread.set_job(self.test)
+        self.send_thread.set_job(self.send_rdt)
         self.send_thread.setDaemon(True)
-        self.send_thread.start()
+
+        # 用来存储接收到的数据
+        self.recv_buffer = []
+
+        # 开一个线程专门用来接收数据
+        self.recv_thread = StoppableThread()
+        self.recv_thread.set_job(self.recv_rdt)
+        self.recv_thread.setDaemon(True)
+
+        # 收发之间的共享数据
+        self.last_SEQ = 0
+        self.last_SEQACK = 1
 
     def combine_head(self):
         return self.SYN.to_bytes(1, byteorder="big") + \
@@ -226,6 +237,9 @@ class RDTSocket(UnreliableSocket):
                     conn.SEQ = self.SEQ
                     conn.SEQACK = self.SEQACK
 
+                    conn.send_thread.start()
+                    conn.recv_thread.start()
+
                     self.clear_flags()
                     continue
 
@@ -253,8 +267,6 @@ class RDTSocket(UnreliableSocket):
             if self.start_state == 2:
                 print("Established")
 
-        self.bind(("127.0.0.1", random.randint(1, 1000) + 61000))
-
         while self.start_state < 3:
             show_stage()
 
@@ -271,6 +283,7 @@ class RDTSocket(UnreliableSocket):
                 if self.start_state == 1:  # 等待接收SYN和ACK
                     self.settimeout(1.5)
                     data_stage_2 = self.recvfrom_check(2048)
+                    self.settimeout(None)
 
                     if data_stage_2 is None:
                         self.start_state -= 1
@@ -296,12 +309,92 @@ class RDTSocket(UnreliableSocket):
 
                 self.set_send_to(address)
                 self.set_recv_from(address)
+                self.send_thread.start()
+                self.recv_thread.start()
 
                 continue
 
         #############################################################################
         #                             END OF YOUR CODE                              #
         #############################################################################
+
+    def recv_rdt(self):
+        data = None
+
+        while True:
+            while data is None:
+                data = self.recvfrom_rdt(bufsize=15000)
+            data = data[0]
+
+            if RDTSocket.get_FIN(data) == 1:
+                break
+
+            if RDTSocket.remove_head(data) is not None:
+                # 如果收到的是数据包
+                if RDTSocket.get_SEQ(data) == self.SEQACK:
+                    self.SEQACK += 1
+                    # 收到正确的数据包，放入recv_buffer
+                    self.recv_buffer.append(data)
+
+                # 发送SEQACK回复，并放入send_buffer
+                pkt_data = self.generatePkt(None)
+                self.ack_buffer.append(pkt_data)
+            else:
+                # 如果收到的是ACK包
+                if RDTSocket.get_SEQACK(data) == self.ack_number:
+                    self.duplicate += 1
+                    if self.duplicate == 3:
+                        self.duplicate = 0
+                        self.cwnd /= 2
+                        self.ssthresh /= 2
+                else:
+                    # 正常接收
+                    self.duplicate = 0
+                    self.ack_number = RDTSocket.get_SEQACK(data)
+                    self.last_SEQACK = max(self.last_SEQACK, self.ack_number)
+                    self.congest_control()
+
+            data = None
+
+    def send_rdt(self):
+        pkt_point = 0
+        base_point = 0
+
+        time_count = 0
+
+        while True:
+            time_count += 1
+
+            if len(self.send_buffer) > 0 and self.last_SEQ + 1 - self.last_SEQACK < self.window_size \
+                    and pkt_point < len(self.send_buffer):
+                self.window_size = max(min(self.cwnd, self.rwnd), 1)
+                # 只要window_size没有满，就进行发送
+                self.SEQ = base_point + (pkt_point + 1)
+                self.last_SEQ = self.SEQ
+
+                pkt_data = self.generatePkt(self.send_buffer[pkt_point])
+                pkt_point += 1
+
+                self.sendto_rdt(pkt_data, self._send_to)
+                time_count = 0
+
+            elif len(self.ack_buffer) > 0:
+                self.sendto_rdt(self.ack_buffer[0], self._send_to)
+                self.ack_buffer.remove(self.ack_buffer[0])
+            else:
+                time.sleep(0.001)
+
+            if time_count >= 500:
+                if self.last_SEQACK <= len(self.send_buffer):
+                    self.last_SEQ = max(self.last_SEQACK - 1, base_point)
+                    pkt_point = self.last_SEQ - (base_point + 1)
+
+                    self.ssthresh = self.cwnd / 2
+                    self.cwnd = 1  # 快回退
+
+                    time_count = 0
+                else:
+                    time_count = 0
 
     def recv(self, bufsize: int) -> bytes:
         """
@@ -313,110 +406,24 @@ class RDTSocket(UnreliableSocket):
         In other words, if someone else sends data to you from another address,
         it MUST NOT affect the data returned by this function.
         """
-        data = None
-        fin_data = None
-        self.settimeout_rdt(None)
         assert self._recv_from, "Connection not established yet. Use recvfrom instead."
         #############################################################################
         # TODO: YOUR CODE HERE                                                      #
         #############################################################################
-        while data is None:
-            data = self.recvfrom_rdt(bufsize)
-        data = data[0]
+        while True:
+            if len(self.recv_buffer) > 0:
+                recv_data: bytes = self.recv_buffer[0]
 
-        # 如果接受的数据STOP为1，表示对方已经发送结束；如果FIN为1，表示是对方需要进行close
-        while RDTSocket.get_FIN(data) != 1:
-            if RDTSocket.get_SEQ(data) == self.SEQACK:
-                self.SEQACK = RDTSocket.get_SEQ(data) + 1
+                assert len(recv_data) <= bufsize, "bufsize is too small."
 
-                # 将收到的数据去掉报文头，并进行拼接
-                if RDTSocket.remove_head(data) is not None:
-                    if fin_data is None:
-                        fin_data = RDTSocket.remove_head(data)
-                    else:
-                        fin_data += RDTSocket.remove_head(data)
-
-            # 发送SEQACK
-            # print(f"SEQ:{RDTSocket.get_SEQ(data)}, SEQACK:{self.SEQACK}, STOP:{RDTSocket.get_STOP(data)}")
-            pkt_data = self.generatePkt(None)
-            self.sendto_rdt(pkt_data, self._send_to)
-
-            # 如果对方已经发送完毕，跳出循环
-            if RDTSocket.get_STOP(data) == 1 and self.SEQACK == RDTSocket.get_SEQ(data) + 1:
+                # 数据读取成功，将其移出recv_buffer
+                self.recv_buffer.remove(self.recv_buffer[0])
+                recv_data = RDTSocket.remove_head(recv_data)
                 break
-
-            # 接收数据
-            tmp_data = None
-            while tmp_data is None:
-                if self.father is not None:
-                    tmp_data = self.father.recvfrom_check(bufsize)
-                else:
-                    tmp_data = self.recvfrom_check(bufsize)
-
-                if tmp_data is not None:
-                    data = tmp_data[0]
-
-        if RDTSocket.get_FIN(data) == 1:
-            close_state = 0
-            close_count = 0
-            while close_state < 3:
-                print(f"server close state {close_state}")
-                if close_state == 0:  # 发送ACK，表示已经收到了FIN
-                    self.clear_flags()
-                    self.ACK = 1
-                    data_stage_1 = self.generatePkt(None)
-                    if self.father is not None:
-                        self.father.sendto(data_stage_1, self._send_to)
-                    else:
-                        self.sendto(data_stage_1, self._send_to)
-                    close_state += 1
-                    continue
-
-                if close_state == 1:  # 发送FIN，表示自己要关闭连接
-                    self.clear_flags()
-                    self.ACK = 1
-                    self.FIN = 1
-                    data_stage_2 = self.generatePkt(None)
-                    if self.father is not None:
-                        self.father.sendto(data_stage_2, self._send_to)
-                    else:
-                        self.sendto(data_stage_2, self._send_to)
-                    close_state += 1
-                    continue
-
-                if close_state == 2:  # 等待对方发送ack
-                    try:
-                        self.settimeout(3)
-                        data_stage_3 = self.recvfrom_rdt(bufsize)
-                        self.settimeout(None)
-
-                        if data_stage_3 is None:
-                            continue
-                        data_stage_3 = data_stage_3[0]
-
-                        if RDTSocket.get_FIN(data_stage_3) == 1:  # 对方没有收到ACK/ACK+FIN
-                            close_state = 0
-                            continue
-
-                        if RDTSocket.get_ACK(data_stage_3) == 1:
-                            print(data_stage_3)
-                            self._send_to = None
-                            self._recv_from = None
-                            close_state += 1
-                            continue
-
-                    except Exception:  # 如果第四次挥手的包丢失，等待一段时间后自动断开连接
-                        print("close count: {}".format(close_count))
-                        close_count += 1
-                        if close_count == 1:
-                            self._send_to = None
-                            self._recv_from = None
-                            close_state += 1
-                        continue
         #############################################################################
         #                             END OF YOUR CODE                              #
         #############################################################################
-        return fin_data
+        return recv_data
 
     def send(self, bytes: bytes):
         """
@@ -427,76 +434,12 @@ class RDTSocket(UnreliableSocket):
         #############################################################################
         # TODO: YOUR CODE HERE                                                      #
         #############################################################################
-        pkt_list = []
         pkt_length = 0  # 以bytes为单位
-        pkt_point = 0  # 表示本次发送中，要发第几个包
-        base_point = self.SEQ  # 表示本次发送之前已经发了多少个包
-        last_SEQ = self.SEQ  # 记录最后发送的seq
-        last_SEQACK = self.SEQ  # 记录最新收到的ack
 
         # 将data进行拆分
         while pkt_length < len(bytes):
-            pkt_list.append(bytes[pkt_length:pkt_length + min(self.pkt_length, len(bytes) - pkt_length)])
+            self.send_buffer.append(bytes[pkt_length:pkt_length + min(self.pkt_length, len(bytes) - pkt_length)])
             pkt_length = pkt_length + self.pkt_length
-
-        while last_SEQACK <= base_point + len(pkt_list):
-            self.window_size = max(min(self.cwnd, self.rwnd), 1)
-            if ((last_SEQACK == base_point and last_SEQ - last_SEQACK < self.window_size)
-                or last_SEQ + 1 - last_SEQACK < self.window_size) \
-                    and pkt_point < len(pkt_list):
-                # 只要window_size没有满，就进行发送
-                self.SEQ = base_point + (pkt_point + 1)
-                last_SEQ = self.SEQ
-
-                if pkt_point == len(pkt_list) - 1:
-                    self.STOP = 1
-
-                pkt_data = self.generatePkt(pkt_list[pkt_point])
-                pkt_point += 1
-
-                # self.accumulate_bytes += len(pkt_data)
-                # if time.time() - ini_t > 1:
-                #     print("speed: {} kB/s".format(round(self.accumulate_bytes / ((time.time() - ini_t) * 1000)), 2))
-                # print("SEQ:{}, SEQACK:{}".format(self.SEQ, self.SEQACK))
-
-                self.sendto_rdt(pkt_data, self._send_to)
-            else:
-                try:
-                    # 当window已满，进行接收
-                    self.settimeout_rdt(2)
-                    ack_data = self.recvfrom_rdt(2048)
-                    if ack_data is None:
-                        continue
-                    ack_data = ack_data[0]
-
-                    # 如果连续多次收到重复的ack，缩小cwnd
-                    if RDTSocket.get_SEQACK(ack_data) == self.acknumber:
-                        self.duplicate += 1
-                        if self.duplicate == 3:
-                            self.duplicate = 0
-                            self.cwnd /= 2
-                            self.ssthresh /= 2
-                    else:
-                        # 正常接收
-                        self.duplicate = 0
-                        self.acknumber = RDTSocket.get_SEQACK(ack_data)
-                        last_SEQACK = max(last_SEQACK, self.acknumber)
-                        self.congest_control()
-                except Exception:  # 发生超时
-                    last_SEQ = max(last_SEQACK - 1, base_point)
-                    pkt_point = last_SEQ - (base_point + 1)
-
-                    self.ssthresh = self.cwnd / 2
-                    self.cwnd = 1  # 快回退
-
-        # 当所有消息发送完时，发送一条STOP为1的packet
-        # self.clear_flags()
-        # self.STOP = 1
-        # if self.father is not None:
-        #     self.father.sendto(self.generatePkt(None), self._send_to)
-        # else:
-        #     self.sendto(self.generatePkt(None), self._send_to)
-        # self.STOP = 0
         #############################################################################
         #                             END OF YOUR CODE                              #
         #############################################################################
@@ -519,11 +462,13 @@ class RDTSocket(UnreliableSocket):
         #############################################################################
         # TODO: YOUR CODE HERE                                                      #
         #############################################################################
+        while self.last_SEQ < len(self.send_buffer) or len(self.ack_buffer) > 0:
+            pass
+
         close_state = 0
         while close_state < 4:
             print(f"close state {close_state}")
             try:
-                self.settimeout(1.5)
                 if close_state == 0:  # 发送FIN信息
                     self.clear_flags()
                     self.FIN = 1
@@ -533,7 +478,10 @@ class RDTSocket(UnreliableSocket):
                     continue
 
                 if close_state == 1:  # 等待接收ack
+                    self.settimeout(1.5)
                     data_stage_2 = self.recvfrom_check(2048)
+
+                    self.settimeout(None)
                     if data_stage_2 is None:
                         continue
                     data_stage_2 = data_stage_2[0]
@@ -542,7 +490,10 @@ class RDTSocket(UnreliableSocket):
                     continue
 
                 if close_state == 2:  # 等待接收对方的FIN信息
+                    self.settimeout(1.5)
                     data_stage_3 = self.recvfrom_check(2048)
+                    self.settimeout(None)
+
                     if data_stage_3 is None:
                         continue
                     data_stage_3 = data_stage_3[0]
@@ -599,12 +550,12 @@ class RDTSocket(UnreliableSocket):
     def recvfrom_check(self, buffer_size):  # 接收消息并进行校验，如果校验成功，返回原数据，如果失败则返回None。
         data = self.recvfrom(buffer_size)
         if data is None:
-            return data
+            return self.recvfrom_check(buffer_size)
         is_correct = self.check(data[0])
         if is_correct:
             return data
         else:
-            return None
+            return self.recvfrom_check(buffer_size)
 
     def check(self, data):
         head = data[0:22]
@@ -642,21 +593,6 @@ class RDTSocket(UnreliableSocket):
             return True
         else:
             return False
-
-    def test(self):
-        while True:
-            if len(self.send_buffer) > 0:
-                self.send(self.send_buffer[0])
-                self.send_buffer.remove(self.send_buffer[0])
-
-    def print_self(self):
-        while True:
-            data = input("send: ")
-            if data == "exit":
-                self.send_thread.stop()
-                break
-            self.send_buffer.append(data.encode())
-            time.sleep(0.1)
 
 
 """

@@ -21,8 +21,8 @@ class Server(ThreadingUDPServer):
         self.buffer = 0
         self.delay = delay
 
-        self.loss_rate = 0.00
-        self.corrupt_rate = 0.00000
+        self.loss_rate = 0.09
+        self.corrupt_rate = 0.0000
         self.delay_rate = 0
 
     def verify_request(self, request, client_address):
@@ -76,9 +76,6 @@ class Server(ThreadingUDPServer):
         for i in range(8, len(data) - 1):
             if random.random() < self.corrupt_rate:
                 data = data[:i] + (data[i] + 1).to_bytes(1, 'big') + data[i + 1:]
-
-        if random.random() < self.delay_rate:
-            time.sleep(2)
 
         socket.sendto(addr_to_bytes(client_address) + data[8:], to)
 
