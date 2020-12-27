@@ -60,7 +60,7 @@ class RDTSocket(UnreliableSocket):
         self.start_state = 0  # 0,1,2 分别表示握手的三个阶段
         self.father: RDTSocket = None  # 对于server端生成的conn，记录是谁创建了它
         self.window_size = 10
-        self.cwnd = 10  # congestion control window size
+        self.cwnd = 1  # congestion control window size
         self.rwnd = 1000  # GBN window size
         self.pkt_length = 1400  # 每一个packet的长度
         self.ssthresh = sys.maxsize  # 发生丢包等错误时回退的值，默认为int最大值
