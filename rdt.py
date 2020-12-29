@@ -453,7 +453,6 @@ class RDTSocket(UnreliableSocket):
                 elif len(self.ack_buffer) > 0:
                     self.sendto_rdt(self.ack_buffer[0], self._send_to)
                     self.ack_buffer.remove(self.ack_buffer[0])
-
                 else:
                     time.sleep(0.001)
 
